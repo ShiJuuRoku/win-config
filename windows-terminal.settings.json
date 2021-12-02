@@ -37,7 +37,12 @@
         "list": 
         [
             {
-                "fontFace": "CaskaydiaCove NF",
+                "font": 
+                {
+                    "face": "MesloLGM NF",
+                    "size": 10,
+                    "weight": "normal"
+                },
                 "guid": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
                 "hidden": false,
                 "name": "PowerShell",
