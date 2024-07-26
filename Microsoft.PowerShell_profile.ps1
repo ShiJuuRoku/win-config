@@ -8,21 +8,30 @@ Import-Module -Name Terminal-Icons
 
 oh-my-posh --init --shell pwsh --config "D:/Config/ohmyposhv3.json" | Invoke-Expression
 
+$env:POSH_GIT_ENABLED = $true
+
 # Searching for commands with up/down arrow is really handy.  The
 # option "moves to end" is useful if you want the cursor at the end
 # of the line while cycling through history like it does w/o searching,
 # without that option, the cursor will remain at the position it was
 # when you used up arrow, which can be useful if you forget the exact
 # string you started the search on.
-Set-PSReadLineOption -HistorySearchCursorMovesToEnd
+
 Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
 Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
 
-Set-PSReadLineOption -PredictionSource History
-Set-PSReadLineOption -PredictionViewStyle ListView
+$PSReadLineOptions = @{
+    EditMode = "Windows"
+    # EditMode = "Emacs"
+    HistoryNoDuplicates = $true
+    HistorySearchCursorMovesToEnd = $true
+    
+    PredictionSource = "HistoryAndPlugin"
+    PredictionViewStyle = "ListView"
+}
+Set-PSReadLineOption @PSReadLineOptions
 
-Set-PSReadLineOption -EditMode Windows
-# Set-PSReadLineOption -EditMode Emacs
+
 
 Register-ArgumentCompleter -Native -CommandName winget -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
@@ -296,8 +305,25 @@ Set-PSReadLineKeyHandler -Key Alt+j `
 Set-PSReadLineOption -AddToHistoryHandler {
     param([string]$line)
 
-    $ignore = "git"
-    return ($line -notmatch $ignore)
+    $trimed = $line.Trim();
+    if($trimed.Length -eq 0){
+        return $false
+    }
+
+    $ignoreExact = "cd","npm","ng","ls","code","explorer"
+    foreach ($item in $ignoreExact) {
+        if($trimed -eq $item){
+            return $false
+        }
+    }
+    $ignoreContains = "cd ","git commit","npm ","rimraf","ng ","ls ","code ","explorer "
+    foreach ($item in $ignoreContains) {
+        if($trimed.Contains($item)){
+            return "MemoryOnly"
+        }
+    }
+
+    return $true
 }
 
 # keep or reset to powershell default
@@ -308,3 +334,5 @@ Set-PSReadlineKeyHandler -Key Ctrl+Tab -Function TabCompleteNext
 
 # define Tab like bash
 Set-PSReadlineKeyHandler -Key Tab -Function Complete
+
+Set-PSReadlineOption -BellStyle None
