@@ -1,0 +1,38 @@
+# Get editor completions based on the config schema
+"$schema" = 'https://starship.rs/config-schema.json'
+
+
+[os]
+disabled = false
+
+[shell]
+disabled = false
+fish_indicator = '󰈺 '
+powershell_indicator = '_'
+bash_indicator = '🐚'
+
+
+[directory]
+fish_style_pwd_dir_length = 5
+
+
+[status]
+disabled = false
+map_symbol = true
+
+[sudo]
+disabled = false
+
+[cmd_duration]
+# Only show if command takes more than X milliseconds
+min_time = 500  # show only if > 1 second
+format = "⏱  [$duration]($style)"
+style = "bold yellow"
+show_milliseconds = true
+
+[memory_usage]
+disabled = false
+threshold = 65
+
+[azure]
+disabled = false
