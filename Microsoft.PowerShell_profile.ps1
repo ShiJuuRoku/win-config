@@ -139,7 +139,7 @@ if ($Host.Name -eq 'ConsoleHost') {
     try {
         Import-Module PSReadLine -ErrorAction SilentlyContinue
 
-        if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
+        if (Get-Module PSReadLine) {
             Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
             Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
             Set-PSReadLineKeyHandler -Key Enter -Function ValidateAndAcceptLine
@@ -345,13 +345,14 @@ if ($Host.Name -eq 'ConsoleHost') {
 
             Set-PSReadLineOption -AddToHistoryHandler {
                 param([string]$line)
+                $commandSucceeded = $?
 
                 $trimmed = $line.Trim()
                 if ($trimmed.Length -eq 0) {
                     return $false
                 }
 
-                if ($script:SkipFailedCommandsInHistory -and -not $?) {
+                if ($script:SkipFailedCommandsInHistory -and -not $commandSucceeded) {
                     return $false
                 }
 
@@ -432,7 +433,7 @@ if ($script:ProfileTimingEnabled) {
 # Lazy-load posh-git (on first git command)
 # ------------------------------------------------------------
 $script:PoshGitLoaded = $false
-$script:GitExePath = (Get-Command -Name git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$script:GitExePath = $null
 
 function Import-PoshGitLazy {
     if ($script:PoshGitLoaded) {
@@ -440,6 +441,11 @@ function Import-PoshGitLazy {
     }
 
     $script:PoshGitLoaded = $true
+
+    if (-not $script:GitExePath) {
+        $script:GitExePath = (Get-Command -Name git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    }
+
     if (Get-Module -ListAvailable -Name posh-git) {
         Import-Module posh-git -ErrorAction SilentlyContinue | Out-Null
     }
@@ -447,7 +453,7 @@ function Import-PoshGitLazy {
     Remove-Item Function:\git -ErrorAction SilentlyContinue
 }
 
-if ($script:GitExePath) {
+if (Test-CommandExists -Name 'git') {
     function global:git {
         param([Parameter(ValueFromRemainingArguments = $true)] [object[]] $CommandArgs)
 
@@ -497,58 +503,52 @@ if (Test-CommandExists -Name 'zoxide') {
 }
 
 # ------------------------------------------------------------
-# Lazy-load fnm env (on first node/npm/npx)
+# fnm: lazy init on first Node tool invocation
 # ------------------------------------------------------------
-$script:FnmEnvLoaded = $false
-$script:NodeExePath = (Get-Command -Name node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-$script:NpmExePath  = (Get-Command -Name npm  -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-$script:NpxExePath  = (Get-Command -Name npx  -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$startMs = if ($script:ProfileTimingEnabled) { $script:ProfileStopwatch.Elapsed.TotalMilliseconds } else { 0 }
+if (Test-CommandExists -Name 'fnm') {
+    $script:FnmInitialized = $false
 
-function Initialize-FnmLazy {
-    if ($script:FnmEnvLoaded) {
-        return
-    }
+    function Initialize-FnmLazy {
+        if ($script:FnmInitialized) { return }
+        $script:FnmInitialized = $true
 
-    $script:FnmEnvLoaded = $true
-    if (Test-CommandExists -Name 'fnm') {
-        $fnmScript = & fnm env --use-on-cd --version-file-strategy=recursive --shell powershell
-        if ($LASTEXITCODE -eq 0 -and $fnmScript) {
-            Invoke-Expression ($fnmScript | Out-String)
+        try {
+            $fnmScript = fnm env --use-on-cd --version-file-strategy=recursive --shell powershell | Out-String
+            if (-not [string]::IsNullOrWhiteSpace($fnmScript)) {
+                Invoke-Expression $fnmScript
+            }
+        } catch {
+            # Do not block shell startup if fnm init fails.
         }
+
+        # Remove proxy functions so real commands take over.
+        Remove-Item Function:\fnm -ErrorAction SilentlyContinue
+        Remove-Item Function:\node -ErrorAction SilentlyContinue
+        Remove-Item Function:\npm -ErrorAction SilentlyContinue
+        Remove-Item Function:\npx -ErrorAction SilentlyContinue
+        Remove-Item Function:\pnpm -ErrorAction SilentlyContinue
+        Remove-Item Function:\yarn -ErrorAction SilentlyContinue
     }
 
-    Remove-Item Function:\node -ErrorAction SilentlyContinue
-    Remove-Item Function:\npm  -ErrorAction SilentlyContinue
-    Remove-Item Function:\npx  -ErrorAction SilentlyContinue
-}
-
-if ($script:NodeExePath) {
-    function global:node {
-        param([Parameter(ValueFromRemainingArguments = $true)] [object[]] $CommandArgs)
-
+    function global:fnm {
+        param([Parameter(ValueFromRemainingArguments)] [object[]] $Args)
         Initialize-FnmLazy
-        & $script:NodeExePath @CommandArgs
+        & (Get-Command fnm -CommandType Application | Select-Object -First 1).Source @Args
+    }
+
+    foreach ($cmd in @('node','npm','npx','pnpm','yarn')) {
+        $body = [scriptblock]::Create("
+            param([Parameter(ValueFromRemainingArguments)] [object[]] `$Args)
+            Initialize-FnmLazy
+            & $cmd @Args
+        ")
+        Set-Item -Path "Function:\global:$cmd" -Value $body
     }
 }
-
-if ($script:NpmExePath) {
-    function global:npm {
-        param([Parameter(ValueFromRemainingArguments = $true)] [object[]] $CommandArgs)
-
-        Initialize-FnmLazy
-        & $script:NpmExePath @CommandArgs
-    }
+if ($script:ProfileTimingEnabled) {
+    Add-ProfileTiming -Step 'fnm lazy wrappers' -StartMs $startMs
 }
-
-if ($script:NpxExePath) {
-    function global:npx {
-        param([Parameter(ValueFromRemainingArguments = $true)] [object[]] $CommandArgs)
-
-        Initialize-FnmLazy
-        & $script:NpxExePath @CommandArgs
-    }
-}
-
 if ($script:ProfileTimingEnabled) {
     $script:ProfileStopwatch.Stop()
     Add-ProfileTiming -Step 'total profile' -StartMs 0
@@ -557,5 +557,3 @@ if ($script:ProfileTimingEnabled) {
     Write-Host '[PowerShell profile timings]' -ForegroundColor Cyan
     $script:ProfileTimings | Sort-Object -Property Ms -Descending | Format-Table -AutoSize
 }
-
-

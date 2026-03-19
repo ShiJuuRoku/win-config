@@ -17,8 +17,10 @@ __bash_timing_enabled="${BASH_STARTUP_TIMING:-0}"
 __bash_now_ms() {
   date +%s%3N 2>/dev/null || echo "$(( $(date +%s) * 1000 ))"
 }
-__bash_timing_start="$(__bash_now_ms)"
-__bash_timing_last="$__bash_timing_start"
+if [ "$__bash_timing_enabled" = "1" ]; then
+  __bash_timing_start="$(__bash_now_ms)"
+  __bash_timing_last="$__bash_timing_start"
+fi
 __bash_timing_mark() {
   [ "$__bash_timing_enabled" = "1" ] || return 0
   local now
@@ -84,8 +86,9 @@ __init_fnm_once() {
     eval "$(fnm env --use-on-cd --version-file-strategy=recursive --shell bash)"
   fi
 
-  # Remove wrappers after first init to avoid overhead on every call.
-  unset -f node npm npx pnpm yarn 2>/dev/null
+  # Remove wrappers and aliases after first init so real commands take over.
+  unset -f fnm __fnm_exec 2>/dev/null
+  unalias node npm npx pnpm yarn 2>/dev/null
 }
 
 if has fnm; then
@@ -93,6 +96,11 @@ if has fnm; then
   __fnm_exec() {
     __init_fnm_once
     command "$@"
+  }
+
+  fnm() {
+    __init_fnm_once
+    command fnm "$@"
   }
 
   alias node='__fnm_exec node'
