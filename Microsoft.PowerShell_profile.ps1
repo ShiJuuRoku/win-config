@@ -503,51 +503,22 @@ if (Test-CommandExists -Name 'zoxide') {
 }
 
 # ------------------------------------------------------------
-# fnm: lazy init on first Node tool invocation
+# fnm environment setup (eager)
 # ------------------------------------------------------------
+# Eager so globally installed npm binaries (codex, tsx, etc.) are in PATH immediately.
 $startMs = if ($script:ProfileTimingEnabled) { $script:ProfileStopwatch.Elapsed.TotalMilliseconds } else { 0 }
 if (Test-CommandExists -Name 'fnm') {
-    $script:FnmInitialized = $false
-
-    function Initialize-FnmLazy {
-        if ($script:FnmInitialized) { return }
-        $script:FnmInitialized = $true
-
-        try {
-            $fnmScript = fnm env --use-on-cd --version-file-strategy=recursive --shell powershell | Out-String
-            if (-not [string]::IsNullOrWhiteSpace($fnmScript)) {
-                Invoke-Expression $fnmScript
-            }
-        } catch {
-            # Do not block shell startup if fnm init fails.
+    try {
+        $fnmScript = fnm env --use-on-cd --version-file-strategy=recursive --shell powershell | Out-String
+        if (-not [string]::IsNullOrWhiteSpace($fnmScript)) {
+            Invoke-Expression $fnmScript
         }
-
-        # Remove proxy functions so real commands take over.
-        Remove-Item Function:\fnm -ErrorAction SilentlyContinue
-        Remove-Item Function:\node -ErrorAction SilentlyContinue
-        Remove-Item Function:\npm -ErrorAction SilentlyContinue
-        Remove-Item Function:\npx -ErrorAction SilentlyContinue
-        Remove-Item Function:\pnpm -ErrorAction SilentlyContinue
-        Remove-Item Function:\yarn -ErrorAction SilentlyContinue
-    }
-
-    function global:fnm {
-        param([Parameter(ValueFromRemainingArguments)] [object[]] $Args)
-        Initialize-FnmLazy
-        & (Get-Command fnm -CommandType Application | Select-Object -First 1).Source @Args
-    }
-
-    foreach ($cmd in @('node','npm','npx','pnpm','yarn')) {
-        $body = [scriptblock]::Create("
-            param([Parameter(ValueFromRemainingArguments)] [object[]] `$Args)
-            Initialize-FnmLazy
-            & $cmd @Args
-        ")
-        Set-Item -Path "Function:\global:$cmd" -Value $body
+    } catch {
+        # Do not block shell startup if fnm init fails.
     }
 }
 if ($script:ProfileTimingEnabled) {
-    Add-ProfileTiming -Step 'fnm lazy wrappers' -StartMs $startMs
+    Add-ProfileTiming -Step 'fnm env init' -StartMs $startMs
 }
 if ($script:ProfileTimingEnabled) {
     $script:ProfileStopwatch.Stop()
